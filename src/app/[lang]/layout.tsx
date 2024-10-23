@@ -1,3 +1,6 @@
+import { LinguiClientProvider } from '@/components/i18n/LinguiClientProvider';
+import { allMessages, getI18nInstance } from "@/i18n";
+import { setI18n } from "@lingui/react/server";
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
@@ -20,15 +23,25 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
+  params: { lang }
 }: Readonly<{
   children: React.ReactNode;
+  params: { lang: string };
 }>) {
+  const i18n = getI18nInstance(lang)
+  setI18n(i18n)
+
   return (
-    <html lang="en">
+    <html lang={lang}>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <LinguiClientProvider
+          initialLocale={lang}
+          initialMessages={allMessages[lang]!}
+        >
+          {children}
+        </LinguiClientProvider>
       </body>
     </html>
   );
