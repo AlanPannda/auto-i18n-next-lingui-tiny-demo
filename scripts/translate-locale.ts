@@ -7,10 +7,6 @@ import { languageI18nNames } from '../src/const';
 const directoryPath = path.join(process.cwd(), 'src/locales');
 const keywordsPath = path.join(process.cwd(), 'scripts/keywords.txt');
 
-if (!process.env['OPENAI_API_KEY']) {
-  throw new Error('OPENAI_API_KEY is not set');
-}
-
 const openai = new OpenAI({
   apiKey: process.env['OPENAI_API_KEY'],
 });
@@ -73,6 +69,7 @@ You are an AI expert skilled in data processing and multilingual translation, ca
 - Do not provide any explanations, directly output json content, and do not output \`\`\`json\`\`\` tags.
 
 - IMPORTANT: The following keywords MUST NOT be translated under any circumstances. You MUST keep the original text exactly as it is. Failure to preserve these terms in their original form will result in critical errors. Double-check your output to ensure these terms remain untouched.
+- Check the escape character carefully. Don't escape single quotes, escape double quotes.
 
 ${keywordsList.join(', ')}
 
@@ -82,7 +79,7 @@ ${JSON.stringify(needTranslateKeys, null, 2)}
 `;
 
   let msg = await translate(prompt);
-  console.log("OpenAI response:", msg);
+  console.log(`OpenAI response (${language}):`, msg);
 
   const safeJSONParse = (str: string): any | null => {
     try {
@@ -119,18 +116,21 @@ ${JSON.stringify(needTranslateKeys, null, 2)}
   }
 }
 
-async function processLanguagesInQueue(languages: string[], concurrency = 3, autoMode = false): Promise<string[]> {
+async function processLanguagesInQueue(languages: string[], concurrency = 3, autoMode = false, maxRetries = 3): Promise<string[]> {
   const queue = [...languages];
   const inProgress = new Set<string>();
   const results: string[] = [];
 
-  async function processNext(): Promise<void> {
+  async function processNext({ retries }: { retries: number }): Promise<void> {
     if (queue.length === 0) return;
     const language = queue.shift()!;
     inProgress.add(language);
 
     try {
       let remainingKeys: number;
+      if (retries > maxRetries) {
+        throw new Error(`Max retries ${maxRetries} reached for language: ${language}`);
+      }
       do {
         remainingKeys = await processLanguage(language);
         if (autoMode && remainingKeys > 0) {
@@ -140,18 +140,27 @@ async function processLanguagesInQueue(languages: string[], concurrency = 3, aut
 
       results.push(`${language} processing completed`);
     } catch (error) {
+      retries++;
       results.push(`${language} processing failed: ${(error as Error).message}`);
+      console.error(`Error processing language ${language}:`, error);
+      if (retries < maxRetries) {
+        console.log(`Retrying language: ${language} (${retries + 1}/${maxRetries})`);
+        queue.unshift(language); // Re-add the language to the queue for retry
+      } else {
+        console.error(`Max retries ${maxRetries} reached for language: ${language}, skipping...\nError: ${error}`);
+        process.exit(1)
+      }
     } finally {
       inProgress.delete(language);
       if (queue.length > 0) {
-        await processNext();
+        await processNext({ retries });
       }
     }
   }
 
   const workers = Array(Math.min(concurrency, languages.length))
     .fill(null)
-    .map(() => processNext());
+    .map(() => processNext({ retries: 0 }));
 
   await Promise.all(workers);
   return results;
