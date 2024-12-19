@@ -1,0 +1,195 @@
+It sounds like you're encountering a 404 error when trying to access the `/demo/blog` route in your Next.js project. This issue could be related to several aspects of your project configuration, including routing, middleware, and content setup. Let's walk through a comprehensive troubleshooting process to identify and resolve the problem.
+
+### 1. **Understand the Routing Structure**
+
+Your project uses dynamic routing with localization. Specifically, the blog posts are expected to be accessed via URLs that include the language code, such as:
+
+- `/en/demo/blog/hello-world`
+- `/zh/demo/blog/hello-world`
+
+### 2. **Verify Accessing the Correct URL**
+
+Ensure that you are accessing the blog posts with the correct URL structure that includes the locale. Accessing `/demo/blog` directly without the locale (`/en` or `/zh`) might lead to a 404 error because the dynamic route expects a language parameter.
+
+**Action:**
+- Try accessing a specific blog post with the locale, for example:
+  - `http://yourdomain.com/en/demo/blog/hello-world`
+  - `http://yourdomain.com/zh/demo/blog/hello-world`
+
+### 3. **Check `generateStaticParams` Function**
+
+The `generateStaticParams` function is responsible for generating all possible combinations of `filename` and `lang` during the build time. Ensure that this function correctly fetches all blog posts and combines them with the supported locales.
+
+**Review the Function:**
+```javascript
+export async function generateStaticParams() {
+  const postsListData = await client.queries.postConnection()
+  const locales = ['en', 'zh'] // Supported languages
+
+  return postsListData.data.postConnection.edges.flatMap((post) => 
+    locales.map((lang) => ({
+      filename: post.node._sys.filename,
+      lang
+    }))
+  )
+}
+```
+
+**Action:**
+- Confirm that `postsListData` correctly fetches all blog posts.
+- Ensure that `locales` array includes all the languages you intend to support.
+- After making any changes, rebuild your project to regenerate the static pages.
+
+### 4. **Inspect Middleware Configuration**
+
+Your `middleware.ts` is designed to handle locale prefixes in URLs. It rewrites URLs to include the default locale if it's missing, except for specific paths like `/admin`, `/_tina`, and `/demo/blog`.
+
+**Key Points:**
+- The middleware **excludes** `/demo/blog` from locale rewriting.
+- This means that accessing `/demo/blog/hello-world` **without** a locale prefix won't be rewritten to include `/en` or `/zh`.
+
+**Potential Issue:**
+- If you intend to access blog posts without a locale prefix, ensure that your routing and middleware logic support this. Otherwise, always use locale-prefixed URLs.
+
+**Action:**
+- If you prefer to have locale prefixes, ensure you always access blog posts with the locale (e.g., `/en/demo/blog/hello-world`).
+- If you want to allow accessing without the locale, adjust your middleware accordingly, but be cautious as this can lead to duplicate content issues for SEO.
+
+### 5. **Verify TinaCMS Configuration**
+
+Your `tina/config.ts` defines how TinaCMS interacts with your content and routing.
+
+**Key Points:**
+- The `router` function in the TinaCMS config uses the default locale to construct URLs.
+- Ensure that `defaultLocale` matches the locale used in your middleware and application.
+
+**Action:**
+- Double-check that `defaultLocale` in `tina/config.ts` is set to `"en"`, matching your `lingui.config.ts`.
+- Ensure that the `relativePath` in your queries correctly points to existing Markdown files.
+
+### 6. **Check Content Files**
+
+Ensure that the content files exist and are correctly named.
+
+**Action:**
+- Verify that `content/posts/hello-world.md` exists.
+- Ensure that the filename used in the URL (`hello-world`) matches the actual filename without the `.md` extension.
+
+### 7. **Inspect Dynamic Route Page**
+
+Your dynamic route page at `src/app/[lang]/demo/blog/[filename]/page.tsx` is responsible for fetching and rendering the blog post.
+
+**Key Points:**
+- It uses `params.filename` and `params.lang` to fetch the correct post.
+- The component should correctly handle the fetched data and render the content.
+
+**Action:**
+- Ensure that the `client` import path is correct. The current import uses relative paths:
+  ```javascript
+  import client from '../../../../tina/__generated__/client'
+  ```
+  If you have configured absolute imports, you might prefer:
+  ```javascript
+  import client from '@/tina/__generated__/client'
+  ```
+- Make sure that `tina/__generated__/client.ts` exists and is correctly generated.
+- Check for any runtime errors in the browser console or server logs that might indicate issues with data fetching or rendering.
+
+### 8. **Rebuild and Test the Project**
+
+After making the above checks and adjustments, rebuild your project to ensure that all static pages are correctly generated.
+
+**Action:**
+```bash
+# Using pnpm
+pnpm build
+pnpm start
+```
+
+- During the build process, watch for any errors or warnings that might indicate missing content or misconfigurations.
+- After a successful build, test accessing specific blog posts with the correct URLs.
+
+### 9. **Additional Debugging Steps**
+
+If the issue persists, consider the following additional steps:
+
+- **Check Build Logs:** Look for any errors related to routing, content fetching, or TinaCMS during the build process.
+- **Verify Generated Static Pages:** Ensure that Next.js has generated the expected static pages for all blog posts and locales.
+- **Inspect Network Requests:** Use browser developer tools to inspect network requests and ensure that the correct pages are being served.
+- **Review Environment Variables:** Ensure that all necessary environment variables (like `NEXT_PUBLIC_TINA_CLIENT_ID` and `TINA_TOKEN`) are correctly set.
+
+### 10. **Example URL Access**
+
+Assuming you have a blog post named `hello-world.md` and the default locale is `en`, access it via:
+
+```
+http://yourdomain.com/en/demo/blog/hello-world
+```
+
+For Chinese locale:
+
+```
+http://yourdomain.com/zh/demo/blog/hello-world
+```
+
+### 11. **Implement Fallbacks or Redirects (Optional)**
+
+If you want to handle cases where users access `/demo/blog` without a filename, consider implementing a fallback or redirect to a blog index page.
+
+**Example:**
+
+Create an `index.tsx` in `src/app/[lang]/demo/blog/` to list all blog posts.
+
+```tsx
+// src/app/[lang]/demo/blog/page.tsx
+
+import client from '../../../../tina/__generated__/client'
+import Link from 'next/link'
+
+export async function generateStaticParams() {
+  const postsListData = await client.queries.postConnection()
+  const locales = ['en', 'zh']
+
+  return locales.flatMap((lang) =>
+    postsListData.data.postConnection.edges.map((post) => ({
+      lang,
+      filename: post.node._sys.filename,
+    }))
+  )
+}
+
+export default async function BlogIndexPage({ params }) {
+  const { lang } = params
+  const postsListData = await client.queries.postConnection()
+
+  const posts = postsListData.data.postConnection.edges
+
+  return (
+    <div>
+      <h1>Blog Posts</h1>
+      <ul>
+        {posts.map(({ node }) => (
+          <li key={node._sys.filename}>
+            <Link href={`/${lang}/demo/blog/${node._sys.filename}`}>
+              {node.title}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+```
+
+This provides an index page that lists all blog posts with links to their respective pages.
+
+### 12. **Summary**
+
+- **Use Locale-Prefixed URLs:** Ensure you're accessing blog posts with the correct locale prefix.
+- **Verify Middleware:** Make sure the middleware correctly handles or excludes routes as intended.
+- **Check TinaCMS Configuration:** Ensure TinaCMS is correctly set up to generate the necessary routes.
+- **Confirm Content Exists:** Double-check that your Markdown files are in the correct location and properly named.
+- **Inspect Dynamic Routes:** Ensure dynamic route pages are correctly fetching and rendering content.
+- **Rebuild the Project:** After making changes, always rebuild to apply configurations.
+
+By following these steps, you should be able to identify and resolve the 404 error when accessing your blog routes. If you continue to experience issues, please provide additional details such as specific URLs you're trying to access and any error messages from the build or runtime logs.

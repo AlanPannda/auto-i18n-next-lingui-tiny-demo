@@ -1,39 +1,40 @@
-/*
- * For more info see
- * https://nextjs.org/docs/app/building-your-application/routing/internationalization
- * */
-import { type NextRequest, NextResponse } from 'next/server'
-
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
 import linguiConfig from '../lingui.config'
 
-const { locales } = linguiConfig
+const { locales, sourceLocale } = linguiConfig
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const defaultLocale = linguiConfig.sourceLocale
 
-  // remove the default locale, to avoid duplicates
-  const pathnameHasLocale = locales
-    .filter(locale => locale !== defaultLocale)
-    .some(locale => pathname.startsWith(`/${locale}/`) || pathname === `/${locale}`)
+  // 排除静态资源和API路由
+  if (
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/api') ||
+    pathname.startsWith('/admin') ||
+    pathname.match(/\.(jpg|jpeg|png|gif|ico|svg)$/)
+  ) {
+    return NextResponse.next()
+  }
 
-  if (pathnameHasLocale) return
+  // 检查是否已包含语言前缀
+  const pathnameHasLocale = locales.some(
+    locale => pathname.startsWith(`/${locale}/`) || pathname === `/${locale}`
+  )
 
-  // `/` is actually `/en/`, the default locale
-  request.nextUrl.pathname = `/${defaultLocale}${pathname}`
-  return NextResponse.rewrite(request.nextUrl)
+  if (pathnameHasLocale) {
+    return NextResponse.next()
+  }
+
+  // 重定向到默认语言路径
+  const newUrl = new URL(
+    `/${sourceLocale}${pathname}${request.nextUrl.search}`,
+    request.url
+  )
+  
+  return NextResponse.redirect(newUrl)
 }
 
 export const config = {
-  matcher: [
-    /*
-     * Match all request paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - images - .svg, .png, .jpg, .jpeg, .gif, .webp
-     * Feel free to modify this pattern to include more paths.
-     */
-    '/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'
-  ]
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)']
 }
